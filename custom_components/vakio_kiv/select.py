@@ -1,6 +1,7 @@
-"""Платформа для изменения положения заслонки устройств серии Vakio Kiv"""
+"""Платформа для изменения положения заслонки устройств серии Vakio Kiv."""
 from __future__ import annotations
-from datetime import datetime, timedelta, timezone
+
+from datetime import datetime, timedelta
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
@@ -8,11 +9,11 @@ from homeassistant.const import DEVICE_DEFAULT_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .vakio import Coordinator
 from .const import DOMAIN, KIV_GATES_DICT, KIV_STATE_NAME_OFF
+from .vakio import Coordinator
 
 
 async def async_setup_platform(
@@ -22,10 +23,11 @@ async def async_setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the demo Select entity."""
+    topic = conf.data["topic"]  # type: ignore
     kiv = VakioSelect(
         hass,
-        conf.entry_id,
-        unique_id="kiv",
+        conf.entry_id,  # type: ignore
+        unique_id=topic,
         name="Vakio Kiv",
         icon="mdi:hvac",
         current_option="gate",
@@ -37,7 +39,7 @@ async def async_setup_platform(
             kiv,
         ]
     )
-    coordinator: Coordinator = hass.data[DOMAIN][conf.entry_id]
+    coordinator: Coordinator = hass.data[DOMAIN][conf.entry_id]  # type: ignore
     await coordinator.async_login()
     async_track_time_interval(
         hass,
@@ -57,7 +59,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Demo config entry."""
-    await async_setup_platform(hass, config_entry, async_add_entities)
+    await async_setup_platform(hass, config_entry, async_add_entities)  # type: ignore
 
 
 class VakioSelect(SelectEntity):
@@ -104,7 +106,8 @@ class VakioSelect(SelectEntity):
         # self.async_write_ha_state()
 
     async def _async_update(self, now: datetime):
-        """
+        """Async Update.
+
         Функция вызывается по таймеру.
         Выполняется сравнение параметров состояния устройства с параметрами записанными в классе.
         Если выявляется разница, тогда параметры класса обновляются.
@@ -112,14 +115,13 @@ class VakioSelect(SelectEntity):
         current_gate = self.coordinator.get_gate()
         is_on = self.coordinator.is_on()
         if not is_on and self._attr_current_option != KIV_STATE_NAME_OFF:
-            self._attr_current_option != KIV_STATE_NAME_OFF
             self.async_write_ha_state()
         if (
-            self._attr_current_option not in KIV_GATES_DICT.keys()
-            or KIV_GATES_DICT[self._attr_current_option] != current_gate
+            self._attr_current_option not in KIV_GATES_DICT
+            or KIV_GATES_DICT[self._attr_current_option] != current_gate  # type: ignore
         ):
             for key, val in KIV_GATES_DICT.items():
                 if val == current_gate:
                     new_key = key
-            self._attr_current_option = new_key
+            self._attr_current_option = new_key  # type: ignore
             self.async_write_ha_state()
