@@ -1,4 +1,5 @@
 """Service classes for interacting with Vakio devices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -26,11 +27,19 @@ from .const import (
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
+SPEED_ENDPOINT = "speed"
 GATE_ENDPOINT = "gate"
 STATE_ENDPOINT = "state"
+WORKMODE_ENDPOINT = "workmode"
+TEMP_ENDPOINT = "temp"
+HUD_ENDPOINT = "hud"
 ENDPOINTS = [
+    SPEED_ENDPOINT,
     GATE_ENDPOINT,
     STATE_ENDPOINT,
+    WORKMODE_ENDPOINT,
+    TEMP_ENDPOINT,
+    HUD_ENDPOINT,
 ]
 
 
@@ -40,7 +49,7 @@ class MqttClient:
     def __init__(
         self,
         hass: HomeAssistant,
-        data: dict(str, Any),  # type: ignore
+        data: dict[str, Any],
         coordinator: Coordinator | None = None,
     ) -> None:
         """Initialize."""
@@ -64,7 +73,7 @@ class MqttClient:
         self.is_connected = False
 
     def on_message(self, client, userdata, message: mqtt.MQTTMessage):
-        """Реакция на сообщение."""
+        """Реакция на сообщения."""
         key = str.split(message.topic, "/")[-1]
         self._client.unsubscribe(topic=message.topic)
         value = message.payload.decode()
@@ -72,7 +81,7 @@ class MqttClient:
             with contextlib.suppress(ValueError):
                 value = int(value)
 
-        self._coordinator.condition[key] = value  # type: ignore
+        self._coordinator.condition[key] = value
         # for k, val in self._coordinator.condition.items():
         #     _LOGGER.error("%s: %s", k, val)
 
@@ -87,11 +96,12 @@ class MqttClient:
                 self._client.connect, self.data[CONF_HOST], self.data[CONF_PORT]
             )
             self._client.loop_start()
-            return True
         except OSError as err:
-            _LOGGER.error("Failed to connect to MQTT server due to exception: %s", err)
+            _LOGGER.error(
+                "Failed to connect to MQTT server due to exception: %s", err)
+            return False
 
-        return False
+        return True
 
     async def disconnect(self) -> None:
         """Disconnect from the broker."""
@@ -111,9 +121,10 @@ class MqttClient:
 
         try:
             self._client.connect(self.data[CONF_HOST], self.data[CONF_PORT])
-            return True
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:  # pylint: disable=broad-exception-caught  # noqa: BLE001
             return False
+
+        return True
 
     async def subscribe(self) -> None:
         """Подписка на топики."""
@@ -121,17 +132,20 @@ class MqttClient:
         async with self._paho_lock:
             _, mid = await self.hass.async_add_executor_job(
                 self._client.subscribe,
-                [(f"{self.data[CONF_TOPIC]}/{endpoint}", 0) for endpoint in ENDPOINTS],
+                [(f"{self.data[CONF_TOPIC]}/{endpoint}", 0)
+                 for endpoint in ENDPOINTS],
             )
         for endpoint in ENDPOINTS:
-            _LOGGER.debug("Subscribe to %s, mid: %s, qos: %s", endpoint, mid, 0)
+            _LOGGER.debug("Subscribe to %s, mid: %s, qos: %s",
+                          endpoint, mid, 0)
 
     async def get_condition(
         self,
-    ) -> dict(str, Any):  # type: ignore
+    ) -> dict[str, Any]:
         """Get condition of device."""
         await self.subscribe()
-        return self._coordinator.condition  # type: ignore
+
+        return self._coordinator.condition
 
     async def publish(self, endpoint: str, msg: str, prefix: str | None = None) -> bool:
         """Publish commands to topic."""
@@ -152,7 +166,7 @@ class MqttClient:
 class Coordinator(DataUpdateCoordinator):
     """Class for interact with Broker and HA."""
 
-    def __init__(self, hass: HomeAssistant, data: dict(str, Any)) -> None:  # type: ignore
+    def __init__(self, hass: HomeAssistant, data: dict[str, Any]) -> None:
         """Функция инициализации."""
         super().__init__(
             hass, _LOGGER, name=DOMAIN, update_interval=DEFAULT_TIMEINTERVAL
@@ -162,6 +176,11 @@ class Coordinator(DataUpdateCoordinator):
         self.last_update = None
         self.condition = {
             GATE_ENDPOINT: None,
+            SPEED_ENDPOINT: None,
+            WORKMODE_ENDPOINT: None,
+            STATE_ENDPOINT: None,
+            TEMP_ENDPOINT: None,
+            HUD_ENDPOINT: None,
         }
         self.is_logged_in = False
 
@@ -182,7 +201,7 @@ class Coordinator(DataUpdateCoordinator):
         await self.mqttc.get_condition()
         return True
 
-    async def _async_update(self, now) -> None:
+    async def async_update(self, now) -> None:
         """Async Update.
 
         Функция регистритуется в hass, во всех датчиках и устройствах и контролирует
@@ -190,16 +209,19 @@ class Coordinator(DataUpdateCoordinator):
         """
         await self.mqttc.get_condition()
 
+    async def speed(self, value: int | None = None) -> int | bool | None:
+        """Speed of fan."""
+        if value is None:
+            return self.condition[SPEED_ENDPOINT]
+
+        return await self.mqttc.publish(SPEED_ENDPOINT, value)
+
     async def gate(self, value: int | None = None) -> int | bool | None:
         """Gate of device."""
         if value is None:
             return self.condition[GATE_ENDPOINT]
 
-        return await self.mqttc.publish(GATE_ENDPOINT, value)  # type: ignore
-
-    def get_gate(self) -> int | bool | None:
-        """Gate of device."""
-        return self.condition[GATE_ENDPOINT]
+        return await self.mqttc.publish(GATE_ENDPOINT, value)
 
     async def state(self, value: str | None = None) -> str | bool | None:
         """State of device."""
@@ -208,19 +230,46 @@ class Coordinator(DataUpdateCoordinator):
 
         return await self.mqttc.publish(STATE_ENDPOINT, value)
 
+    async def workmode(self, value: str | None = None) -> str | bool | None:
+        """Workmode of device: manual or super_auto."""
+        if value is None:
+            return self.condition[WORKMODE_ENDPOINT]
+
+        return await self.mqttc.publish(WORKMODE_ENDPOINT, value)
+
+    def get_speed(self) -> int | bool | None:
+        """Speed of fan."""
+        return self.condition[SPEED_ENDPOINT]
+
+    def get_gate(self) -> int | bool | None:
+        """Gate of device."""
+        return self.condition[GATE_ENDPOINT]
+
     def get_state(self) -> str | bool | None:
         """State of device."""
         return self.condition[STATE_ENDPOINT]
 
+    def get_workmode(self) -> str | bool | None:
+        """Workmode of device: manual or super_auto."""
+        return self.condition[WORKMODE_ENDPOINT]
+
+    def get_temp(self) -> int | bool | None:
+        """Возвращается текущая температура с внутреннего датчика устройства."""
+        return self.condition[TEMP_ENDPOINT]
+
+    def get_hud(self) -> int | bool | None:
+        """Возвращается текущая влажность с внутреннего датчика устройства."""
+        return self.condition[HUD_ENDPOINT]
+
     async def turn_on(self) -> bool:
         """Включение устройства."""
-        return await self.state(KIV_STATE_ON)  # type: ignore
+        return await self.state(KIV_STATE_ON)
 
     async def turn_off(self) -> bool:
         """Выключение устройства."""
-        return await self.state(KIV_STATE_OFF)  # type: ignore
+        return await self.state(KIV_STATE_OFF)
 
     def is_on(self) -> bool:
-        """Возвращается `bool` значение 'Включено ли устройство'."""
+        """Возвращается bool значение 'Включено ли устройство'."""
         current_state = self.get_state()
         return current_state == KIV_STATE_ON
